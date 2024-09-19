@@ -289,7 +289,7 @@ plt.show()
 ```
 ![image](https://github.com/user-attachments/assets/5ab485a6-e95d-4eba-999b-b48a82fbb12f)
 
-temp, atemp는 0.98로 상관관계가 높지만 온도와 체감온도로 피처로 사용하기에 적합하지 않을 수 있다. 따라서 확인 필요하다. month와 season 역시 0.97로 상관관계가 높으며 역시 확인이 필요하다.
+temp, atemp는 0.98로 상관관계가 높지만 온도와 체감온도로 피처로 사용하기에 적합하지 않을 수 있다. 따라서 모델에 사용하며 결과 확인 필요하다. month와 season 역시 0.97로 상관관계가 높으며 역시 모델에 사용하며 결과 확인이 필요하다.
 
 0, 1, 2, 3과 같이 category type이 아닌 온도, 습도, 풍속을 시각화를 해보면 다음과 같다.
 ```
@@ -319,7 +319,6 @@ axes[0].set(ylabel='Count')
 sns.countplot(data=test_df, x='windspeed', ax=axes[1])
 ```
 ![image](https://github.com/user-attachments/assets/f0d1d27a-fbeb-48e0-8458-e119451d4553)
-![image](https://github.com/user-attachments/assets/1be3dd3d-edd0-4164-a0b6-495933a9ac09)
 
 바람이 약해 풍향을 판단하기 어려울 시에는 '00'으로 표기하기도 하지만 지금 데이터의 경우엔 0에 굉장히 많은 값이 모여있는 것을 확인할 수 있다. 아마도 관측되지 않은 수치에 대해 0으로 기록된 것이 아닐까 추측해 볼 수 있다. 따라서 풍속의 0 값에 특정 값을 넣어줘야 하며, 평균을 구해 일괄적으로 넣어줄 수도 있지만, 예측의 정확도를 높이는 데 도움이 되지 않을 수도 있다. 따라서 풍속이 0인 것과 아닌 것의 세트를 나누어 예측을 통해 풍속을 구하는 방법을 이용하려고 한다.
 
