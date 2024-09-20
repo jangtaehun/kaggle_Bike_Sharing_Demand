@@ -50,6 +50,7 @@ Bike_Sharing_Demand는 머신러닝에 입문하는 사람들이 가장 먼저 �
   * 로그 변환을 통한 성능 향상
   * 한계점
   * 향후 개선 방향
+5. 프로젝트를 진행하면서 생각했던 부분
 
 ---
 
@@ -489,4 +490,337 @@ X.head()
 ---
 
 ## 모델 학습
+### 1. RandomForest
+RandomForest는 분류만 있는 것이 아닌 회귀도 가능한 CART(Classifier And Regression Tree) 모델을 기반으로 한 앙상블 기법이다. 첫 시작은 RandomForest를 이용해 학습을 해보려고 한다.
 
+데이터가 10886개로 충분하다고 판단하지 않기 때문에 KFold와 cross-validation 즉, 교차검증을 사용해 train, test set를 별도로 나누지 않을 것이다.
+```
+from sklearn.model_selection import KFold
+from sklearn.model_selection import cross_val_score
+from sklearn.ensemble import RandomForestRegressor
+
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+
+model = RandomForestRegressor(n_estimators=100, n_jobs=-1, random_state=0)
+```
+```
+%time
+score = cross_val_score(model, X, y, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+![image](https://github.com/user-attachments/assets/209ff931-8e6f-4f30-ab9f-b51456aa1b39)
+
+다음과 같이 나온다. 이제 X, y를 학습하고 test 데이터를 예측한 다음 제출을 해보겠다.
+```
+model.fit(X, y)
+
+# 예측
+predictions = model.predict(test_df)
+```
+```
+fig,(ax1,ax2)= plt.subplots(ncols=2)
+fig.set_size_inches(12,5)
+
+sns.distplot(y,ax=ax1,bins=50)
+ax1.set(title="train")
+
+sns.distplot(predictions,ax=ax2,bins=50)
+ax2.set(title="test")
+```
+![image](https://github.com/user-attachments/assets/a9ed879d-8a08-4d43-84f5-7dc7e3e07cb2)
+
+train 데이터와 예측한 test 데이터의 count 분포가 비슷하다. 로그 변환(log transformation)과 같은 변환 기법을 통해 분포를 좀 더 정규분포에 가깝게 만들 필요가 있어 보인다.
+```
+importances = model.feature_importances_
+features = test_df.columns  # 또는 학습에 사용한 feature names
+
+# 피처 중요도를 데이터프레임으로 정리
+feature_importance_df = pd.DataFrame({
+    'Feature': features,
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# 피처 중요도 시각화
+plt.figure(figsize=(10, 6))
+plt.barh(feature_importance_df['Feature'], feature_importance_df['Importance'], color='skyblue')
+plt.xlabel('Importance')
+plt.ylabel('Feature')
+plt.title('Feature Importance in Random Forest')
+plt.gca().invert_yaxis()  # 중요도가 높은 것이 위로 오도록 반전
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/d277d094-4daa-40b7-8f54-320124e6f0f0)
+
+예상대로 시간이 중요한 feature로 사용되었다. 주중에는 출퇴근 시간에 가장 많이 대여했고 주말에는 점심부터 저녁 전까지 많이 대여한 것이 중요하게 작용한 것 같다. kaggle에 제출하면 아래와 같은 점수를 확인할 수 있다.
+
+![image](https://github.com/user-attachments/assets/71042bbd-6a3a-4694-bead-7bd5af18f93a)
+
+3242명 중에서 0.41859는 428등에 해당하는 점수로 볼 수 있다. 상위 약 13%에 해당하는 점수이다.
+
+### 2. CatBoost
+CatBoost 역시 RandomForest와 같이 분류뿐만 아니라 회귀도 가능한 CART 모델을 기반으로 한 앙상블 기법이다. 
+```
+from sklearn.model_selection import KFold
+from sklearn.model_selection import cross_val_score
+
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+```
+```
+cat_feature = ['season', 'holiday', 'workingday', 'weather', 'year', 'hour', 'dayofweek']
+cat = CatBoostRegressor(n_estimators=100, random_state=0, verbose=False, cat_features= cat_feature)
+```
+```
+%time
+score = cross_val_score(cat, X, y, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+CatBoostRegressor는 categorical features 즉, 범주형 피처에 대한 처리가 필요하다. 하지만 CatBoost는 범주형 변수를 자동으로 처리하는 기능을 제공하며, 이를 위해 cat_features 파라미터를 사용하여 범주형 변수를 지정할 수 있다. 따라서 categorical 피처를 지정했다.
+
+![image](https://github.com/user-attachments/assets/a0a2d849-9af4-400e-a0c2-080133c98bf8)
+
+```
+cat.fit(X, y)
+
+predictions = cat.predict(test_df)
+
+print(predictions.shape)
+predictions[0:10]
+```
+```
+array([12.97622841, -2.91740803, -2.91740803, -1.13359126, -1.13359126,
+        0.77189256, 42.34616169, 83.00406647, 87.11624515, 59.14248249])
+```
+결과가 너무 좋지 않았고 예측 값이 음수가 나왔다. 따라서 CatBoost는 타겟 값을 로그변환 후 다시 예측을 해보려고 한다.
+
+### 3. XGBoost
+XGBoost 역시 RandomForest와 같이 분류뿐만 아니라 회귀도 가능한 CART 모델을 기반으로 한 앙상블 기법이다. 
+```
+from sklearn.model_selection import KFold
+from sklearn.model_selection import cross_val_score
+
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+
+categorical_feature = ['season', 'holiday', 'workingday', 'weather', 'year', 'hour', 'dayofweek']
+X_encoded = pd.get_dummies(X, columns=categorical_feature, drop_first=False)
+test_encoded = pd.get_dummies(test_df, columns=categorical_feature, drop_first=False)
+
+xgb = XGBRegressor(n_estimators=100, random_state=0, verbose=False)
+```
+```
+%time
+score = cross_val_score(xgb, X_encoded, y, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+XGBoost는 CatBoost와 다르게 categorical feature를 자체적으로 변환해주는 기능이 없기 때문에 이미 0, 1, 2, 3과 같이 숫자의 크기가 의미가 있는 것이 아닌 categorical feature를 get_dummies를 이용해 변환한 후 학습을 했다. 하지만 CatBoost와 같이 점수가 많이 안 좋았다. 뿐만 아니라 에측 값이 음수가 나왔기 때문에 CatBoost와 같이 타겟 값을 로그변환 후 다시 예측을 해보려고 한다.
+
+![image](https://github.com/user-attachments/assets/d7ff8945-a61e-4188-afdc-b1bdd7dc8079)
+
+### 4. Top Score
+![image](https://github.com/user-attachments/assets/2d813fbb-7895-46d5-84f3-d742b3e5c139)
+
+위에서 봤듯이 count가 한쪽으로 치우쳐진 모양이다. 따라서 로그 변환을 통해 데이터의 분포를 정규 분포 형태로 만들고자 한다.
+```
+fig,(ax1,ax2)= plt.subplots(ncols=2)
+fig.set_size_inches(12,5)
+
+sns.distplot(y,ax=ax1,bins=50)
+ax1.set(title="로그 변환 전")
+
+sns.distplot(y_log,ax=ax2,bins=50)
+ax2.set(title="로그 변환 후")
+```
+![image](https://github.com/user-attachments/assets/b147c0c5-0b8d-4ad0-be46-c2bf21979a68)
+
+다음과 같이 변환된 모습을 확인할 수 있다.
+
+### 1. RandomForest
+로그 변환 후 RandomForest Regressor로 학습을 해보겠다.
+```
+y_log = np.log1p(y)
+
+rfModel = RandomForestRegressor(n_estimators=200)
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+
+%time
+score = cross_val_score(rfModel, X, y_log, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+![image](https://github.com/user-attachments/assets/db43717d-f1b9-4b66-ad0a-74e45391f531)
+
+로그 변환 이전에 비해 굉장히 좋아진 것을 확인할 수 있다.
+```
+rfModel.fit(X, y_log)
+
+preds = rfModel.predict(X)
+score = rmsle(np.exp(y_log),np.exp(preds))
+print ("RMSLE Value For Random Forest: ",score)
+```
+RMSLE Value For Random Forest:  0.10534112631045482
+```
+importances = rfModel.feature_importances_
+features = test_df.columns  # 또는 학습에 사용한 feature names
+
+# 피처 중요도를 데이터프레임으로 정리
+feature_importance_df = pd.DataFrame({
+    'Feature': features,
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# 피처 중요도 시각화
+plt.figure(figsize=(10, 6))
+plt.barh(feature_importance_df['Feature'], feature_importance_df['Importance'], color='skyblue')
+plt.xlabel('Importance')
+plt.ylabel('Feature')
+plt.title('Feature Importance in Random Forest')
+plt.gca().invert_yaxis()  # 중요도가 높은 것이 위로 오도록 반전
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/2e267fad-bc31-4549-8804-c8b1623d86d7)
+
+이전과 다르게 hour에 대한 importance가 더 강해졌다. 이제 kaggle에 제출해보겠다.
+```
+predsTest = rfModel.predict(test_df)
+
+submission = pd.read_csv("../../data/bike/sampleSubmission.csv")
+submission["count"] = np.exp(predsTest)
+submission.to_csv("submission_best.csv".format(score), index=False)
+```
+np.exp(predsTest)를 하는 이유는 로그 변환된 예측값을 원래 스케일로 되돌리는 과정이다. 즉, 로그 변환을 통해 학습된 모델에서 예측한 결과를, 실제 데이터로 복원하기 위한 것이다.
+
+![image](https://github.com/user-attachments/assets/55b42277-72ee-4f90-8402-a15187feaddf)
+
+이전 보다 더 좋은 점수를 얻을 수 있다. 195등으로 상위 약 6%에 해당하는 점수이다.
+
+### 2. CatBoost
+```
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+
+cat_feature = ['season', 'holiday', 'workingday', 'weather', 'year', 'hour', 'dayofweek']
+cat = CatBoostRegressor(n_estimators=100, random_state=0, verbose=False, cat_features= cat_feature)
+
+%time
+score = cross_val_score(cat, X, y_log, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+![image](https://github.com/user-attachments/assets/db817460-ad31-4f4e-901d-efaca691a88a)
+
+CatBoost 역시 이전과 다르게 굉장히 좋아졌다. 하지만 점수는 굉장히 안 좋게 나왔다.
+
+![image](https://github.com/user-attachments/assets/2b873c90-d5ba-49b3-b35c-800af76ffed9)
+
+### 3. XGBoost
+```
+k_fold = KFold(n_splits=10, shuffle=True, random_state=0)
+
+categorical_feature = ['season', 'holiday', 'workingday', 'weather', 'year', 'hour', 'dayofweek']
+X_encoded = pd.get_dummies(X, columns=categorical_feature, drop_first=False)
+test_encoded = pd.get_dummies(test_df, columns=categorical_feature, drop_first=False)
+
+xgb = XGBRegressor(n_estimators=100, random_state=0, verbose=False)
+
+%time
+score = cross_val_score(xgb, X_encoded, y_log, cv=k_fold, scoring=scores)
+score = score.mean()
+
+# 0에 근접할수록 좋은 데이터
+print("Score= {0:.5f}".format(score))
+```
+![image](https://github.com/user-attachments/assets/a7533fc9-5587-4ca9-913f-eeaac334af59)
+```
+xgb.fit(X_encoded, y_log)
+
+preds = xgb.predict(X_encoded)
+score = rmsle(np.exp(y_log),np.exp(preds))
+print ("RMSLE Value For Random Forest: ",score)
+```
+RMSLE Value For Random Forest:  0.182843222434541
+```
+predsTest = xgb.predict(test_encoded)
+submission = pd.read_csv("../../data/bike/sampleSubmission.csv")
+submission["count"] = np.exp(predsTest)
+submission.to_csv("submission_xgb_best.csv".format(score), index=False)
+```
+RandomForestRegressor와 같이 좋은 점수를 보여준다. 하지만 RandomForestRegressor보다 안 좋은 점수를 보여준다. kaggle에 제출하면 아래와 같은 점수를 확인할 수 있다.
+
+![image](https://github.com/user-attachments/assets/170d4916-928d-48ff-ab42-22904ccc96ae)
+
+RandomForestRegressor 보다 더 좋은 점수를 보여준다. 상위 약 5%에 해당하는 점수를 얻을 수 있다.
+
+## 결론
+이번 프로젝트는 Kaggle에서 진행된 Bike Sharing Demand 대회를 기반으로 자전거 대여 수요를 예측하는 것이 목표이다. 이 대회는 Capital Bikeshare의 데이터를 사용하여, 2011년 1월부터 2012년 12월까지 자전거 대여 데이터를 분석하고, 과거의 사용 패턴과 날씨 데이터를 결합하여 자전거 대여 수요를 예측하는 문제로 주요 목표는 RMSLE (Root Mean Squared Logarithmic Error)를 최소화하여 예측 성능을 향상시키는 것이다.
+
+### 1. EDA 및 주요 인사이트
+EDA(탐색적 데이터 분석)를 통해 자전거 대여 수요에 영향을 미치는 주요 요인을 분석했다. 시간대와 요일, 날씨는 자전거 대여에 중요한 영향을 미치는 변수로 확인되었다. 특히 출퇴근 시간에는 자전거 대여가 급증하는 패턴이 확인되었고, 주중과 주말의 대여 패턴 역시 차이가 있다. 날씨의 경우, 날씨가 나빠지면 자전거 대여량이 감소하는 경향이 뚜렷했으며, 이는 수요 예측에 중요한 변수로 작용했다. 또한, 풍속이 0인 경우가 많아 이를 처리하기 위한 풍속 예측 모델을 사용하였다.
+
+### 2. 모델 성능 비교
+세 가지 주요 모델인 RandomForest, CatBoost, XGBoost를 사용하여 자전거 대여 수요를 예측했다. 각각의 모델에 대해 KFold 교차 검증을 사용하여 성능을 평가했으며, 모델 간의 성능 차이를 비교했다.
+
+* RandomForest: 로그 변환을 적용한 후 RMSLE 0.105를 기록하며 가장 우수한 성능을 보였다. 시간(hour)이 가장 중요한 피처로 작용했으며, 주중과 주말의 시간별 패턴이 중요한 영향을 미쳤다.
+* CatBoost: 범주형 피처 처리에 강점을 가진 CatBoost는 로그 변환 후에도 RMSLE 0.133으로 좋은 성능을 보였지만, 낮은 성능을 보였다.
+* XGBoost: 로그 변환을 적용한 후 RMSLE 0.182로 성능이 다소 낮게 나왔다. 그럼에도 kaggle에 제출했을 때 RandomForest보다 더 높은 점수를 얻을 수 있었다.
+
+### 3. 로그 변환을 통한 성능 향상
+데이터의 분포가 한쪽으로 치우쳐져 있는 문제를 해결하기 위해 로그 변환을 사용하여 종속 변수인 count를 변환한 후 모델을 학습했다. 로그 변환을 통해 모델 성능이 전반적으로 향상되었다. 로그 변환 후 예측값을 다시 역변환(np.exp())하여 실제 값으로 제출하였으며, 이를 통해 Kaggle에서 상위 약 5%의 성과를 달성할 수 있었다.
+
+### 4. 한계점
+이번 프로젝트에서는 주로 로그 변환과 기본적인 피처 엔지니어링을 통해 성능을 개선할 수 있었다. 그러나 풍속(windspeed)의 결측값 처리와 같은 일부 변수에 대한 처리는 개선이 필요할 수 있다. 풍속 예측 모델을 통해 결측값을 예측했지만, 더 정교한 기법을 적용할 여지가 남아 있다. 또한, 데이터의 외부 요인(이벤트, 축제 등)을 반영하지 못한 것도 한계로 작용할 수 있다.
+
+### 5. 향후 개선 방향
+앞으로의 개선 방향으로는 더 다양한 피처 엔지니어링과 모델 튜닝을 통해 예측 성능을 더욱 높일 수 있을 것이다. 예를 들어, 딥러닝 모델이나 앙상블 기법을 사용하여 성능을 향상시킬 수 있다. 또한, 외부 데이터(특별한 이벤트 정보, 경제 데이터 등)를 추가하여, 더욱 정교한 자전거 수요 예측이 가능할 것으로 생각한다.
+
+## 프로젝트를 진행하면서 고민했던 부분
+프로젝트를 진행하면서 고민했던 부분이 몇 가지 있었다. 
+### 지금까지 프로젝트를 진행하면서 여러 모델을 비교하며 진행했었다. 하지만 이번 프로젝트를 진행하면서 어떤 모델이 가장 효과적일까? 즉, 어떤 모델이 해당 데이터셋에 가장 좋을까? 모델을 한 번에 선택할 수 있는 방법이 있을까 고민을 했었다.
+  * 해결방법
+  * 구글링을 해보고 GPT에도 물어봤지만 만족스러운 답을 찾지 못 했다. 마지막으로 권철민 강사님의 <파이썬 머신러닝 완벽 가이드> 질문하는 공간에 다음과 같이 질문을 했다.
+    ```
+    안녕하세요 강사님.
+    강사님의 강의를 토대로 kaggle, dacon에서 제공하는 데이터를 가지고 분석을 하면서 궁금한 점이 생겼습니다.
+    데이터를 예측할 때 가장 좋은 모델을 비교를 하지 않고 선택할 수 있는 방법이 있을까요?
+    예를 들어 분류에서는 boosting 알고리즘에서도 XGBoost, LightGBM, CatBoost 등 여러 모델이 있는데 이 중에서 가장 좋은 모델 즉, 해당 데이터 셋에서 가장 적절한 모델을 찾을 수 있는 방법이 있을까요??
+    데이터의 크기가 현재는 모든 모델을 사용하면서 성능을 비교할 수 있는 크기지만, 나중에는 매우 많은 데이터를 다루게 된다면 비교하기에 어려울 것 같다는 생각이 들어서 이렇게 질문을 남깁니다.
+    ```
+    결론적으로 모델 선택은 여러 알고리즘을 시도해보고 성능을 비교하는 것이 일반 적이지만, 몇 가지 원칙이나 경험을 토대로 선택을 간소화할 수 있다.
+    
+    자세히 설명하면 다음과 같다.
+    
+    모델을 만들때 어떤 알고리즘이 어떤 상황에 적용되느냐의 기준이 없습니다. 다양한 알고리즘을 적용해서 그 중에 좋은 알고리즘을 선택하면 됩니다. 다만 알고리즘 성능은 조금 떨어지더라도 학습 시간이 대폭 줄어든다거나, 데이터 전처리에 많은 시간과 노력이 필요하지 않은 알고리즘을 선택하는 취사 선택 정도의 기준이 있습니다.
+
+    즉, 어떤 알고리즘이 어떤 상황에서 더 좋다는 정해진 게 없습니다. 적용해 봐야 아는 것입니다. 다만 어느 정도 특정 알고리즘이 뛰어난 성능을 발휘하는 경우를 경험적으로 인지하고 이를 먼저 적용해 보면서 최적 모델을 찾습니다.
+
+### 데이터를 다룰 때 이상치, 중요도가 낮은 feature, 모델의 성능을 낮추는 feature를 어떻게 다뤄야 할까에 대한 고민을 많이 했다. 특히, 중요 feature, 성능을 낮추는 feature를 어떻게 미리 확인을 할 수 있을까에 대한 고민을 했었다.
+  * 해결방법
+  * 중요도가 낮은 피처, 중요도가 높은 피처, 그리고 성능을 낮추는 피처를 파악하는 것은 모델 해석과 특성 중요도 분석을 통해 가능하다. 모델을 학습하기 전까지는 사전에 파악하기는 어렵다. 즉, 피처의 중요도나 성능에 미치는 영향을 실제로 모델이 학습하면서 결정하기 때문이다. 그러나 모델 학습 전에도 어느 정도 유추할 수 있는 몇 가지 방법이 있다.
+  * 1. 피처 중요도를 예측할 수 있는 사전 분석 방법
+       상관관계 분석 (Correlation Analysis): 각 피처가 타겟 변수와 얼마나 관련이 있는지 파악할 수 있다. 피처와 타겟 간의 상관관계가 크면, 해당 피처가 중요한 피처일 가능성이 있다.
+       
+       피처 간 다중공선성 탐지 (Multicollinearity Detection): 피처 간 상관관계가 높은 경우 불필요한 피처를 제거할 수 있다. 다중공선성이 높을수록 피처들 간에 정보가 중복되며, 이로 인해 모델 성능이 저하될 수 있다.
+       
+       통계적 검정 (Statistical Tests): 피처와 타겟 변수 간의 관계를 분석할 수 있다. 특히, 분류 문제에서 특히 유용하며, 피처가 타겟과 독립적인지 여부를 파악할 수 있다. 카이제곱 검정, T-검정 또는 ANOVA가 있다.
+       
+       피처 엔지니어링 과정에서의 인사이트: 데이터에 대한 도메인 지식을 활용해 중요한 피처와 그렇지 않은 피처를 어느 정도 예측할 수 있다.
+       
+  * 2. 성능을 낮추는 피처를 예측하는 방법
+       노이즈가 많거나 데이터 분포가 불균형한 피처 탐지: 피처의 값이 한쪽으로 치우친 경우(예: 대부분의 값이 0인 경우), 해당 피처는 모델 성능에 도움이 되지 않거나 오히려 성능을 저하시킬 수 있다. 이 부분에 대해서는 이번 프로젝트를 진행하면서 windspeed를 예측을 통해 0인 값을 대체했었고 좋은 결과를 얻을 수 있었다.
+
+       다중공선성이 높은 피처: 다중공선성이 높은 피처는 성능을 저하시킬 가능성이 있으므로, 학습 전에 이러한 피처를 파악해 제거할 수 있다.
+
+       유사한 정보가 중복된 피처 탐지: 서로 다른 피처가 매우 유사한 정보를 제공하는 경우, 그 중 하나는 성능에 기여하지 않거나 성능을 떨어뜨릴 수 있다. 이를 파악하기 위해 상관행렬을 분석하여 피처 간 상관관계가 0.9 이상인 경우, 성능을 저하시키는 피처를 사전에 제거할 수 있다.
+
+  * 3. 추가적인 방법
+       유의미하지 않은 피처 탐지: 분산이 매우 낮은 피처는 거의 일정한 값을 가지고 있을 가능성이 높으며, 이는 타겟 변수를 예측하는 데 기여하지 않을 가능성이 크다. 따라서 분산이 0에 가까운 피처는 성능에 기여하지 않는 피처일 수 있다.
